@@ -1,0 +1,4 @@
+supabase
+beautifulsoup4
+pytz
+requests
