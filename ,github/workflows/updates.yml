@@ -1,0 +1,35 @@
+name: 📈 Daily Price & Pattern Update
+
+on:
+  schedule:
+    - cron: '0 7 * * 1-5'  # UTC 07:00 → KST 16:00 (평일 오후 4시)
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 리포지토리 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 3.10 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 📦 의존성 설치
+        run: |
+          pip install -r requirements.txt
+
+      - name: 🚀 시세 업데이트 실행
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/update_prices.py
+
+      - name: 🧠 패턴 계산 실행
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          psql "$SUPABASE_DB_URL" -f scripts/update_patterns.sql
