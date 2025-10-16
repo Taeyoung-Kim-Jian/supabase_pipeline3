@@ -2,34 +2,54 @@ name: 📈 Daily Price & Pattern Update
 
 on:
   schedule:
-    - cron: '0 7 * * 1-5'  # UTC 07:00 → KST 16:00 (평일 오후 4시)
+    - cron: '0 7 * * 1-5'  # UTC 07:10 → KST 16:10 (평일 오후 4시 00분)
   workflow_dispatch:
 
 jobs:
   update:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: 📥 리포지토리 체크아웃
         uses: actions/checkout@v4
-
+      
       - name: 🐍 Python 3.10 설치
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
-      - name: 📦 의존성 설치
+      
+      - name: 📦 Python 의존성 설치
         run: |
           pip install -r requirements.txt
-
+      
       - name: 🚀 시세 업데이트 실행
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/update_prices.py
-
+      
+      - name: 🟢 Node.js 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: 📦 Node.js 의존성 설치
+        run: npm install @supabase/supabase-js
+      
       - name: 🧠 패턴 계산 실행
         env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/update-patterns.js
+      
+      - name: ✅ 완료 알림
+        if: success()
         run: |
-          psql "$SUPABASE_DB_URL" -f scripts/update_patterns.sql
+          echo "✅ 모든 작업이 성공적으로 완료되었습니다!"
+          echo "📅 실행 시간(KST): $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
+      
+      - name: ❌ 실패 알림
+        if: failure()
+        run: |
+          echo "❌ 작업 실행 중 오류가 발생했습니다."
+          echo "📅 실행 시간(KST): $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S')"
