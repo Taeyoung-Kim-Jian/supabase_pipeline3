@@ -1,1 +1,12 @@
-
+{
+  "name": "supabase-pipeline",
+  "version": "1.0.0",
+  "description": "Scripts for Supabase data pipeline",
+  "main": "scripts/update-patterns.js",
+  "scripts": {
+    "start": "node scripts/update-patterns.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.7"
+  }
+}
