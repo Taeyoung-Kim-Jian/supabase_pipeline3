@@ -45,11 +45,11 @@ jobs:
         working-directory: ./
         run: node scripts/update-patterns.js
       
-      - name: 🤖 AI 패턴 분석 실행 (US 주식)
+      - name: 🇰🇷 한국 주식 패턴 분석 실행
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: python scripts/analyze_us_subpatterns.py
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/analyze_kr_patterns.py
       
       - name: ✅ 완료 알림
         if: success()
