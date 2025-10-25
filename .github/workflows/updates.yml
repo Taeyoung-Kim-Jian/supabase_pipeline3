@@ -51,6 +51,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/analyze_kr_patterns.py
       
+      - name: 📊 투자점수 계산 실행
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/calculate_investment_scores.py
+      
       - name: ✅ 완료 알림
         if: success()
         run: |
