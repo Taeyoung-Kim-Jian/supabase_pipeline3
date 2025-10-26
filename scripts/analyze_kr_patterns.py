@@ -7,15 +7,29 @@
 import os
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from supabase import create_client, Client
+
+# .env 파일 로드
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+        pass
+except ImportError:
+    pass
 
 # Supabase 클라이언트 초기화
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+# SERVICE_ROLE_KEY가 없으면 ANON_KEY 사용
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("❌ 환경 변수가 설정되지 않았습니다: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY")
+    print("ERROR: Environment variables not set")
     sys.exit(1)
+
+print(f"🔑 키 타입: {'SERVICE_ROLE' if os.getenv('SUPABASE_SERVICE_ROLE_KEY') else 'ANON'}")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
