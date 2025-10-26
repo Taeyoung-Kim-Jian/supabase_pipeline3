@@ -266,8 +266,8 @@ def calculate_buy_prices(b_price):
     }
 
 def calculate_expected_returns(current_price, b_price, prices):
-    """예상 수익률 계산"""
-    if not prices or len(prices) < 30:
+    """예상 수익률 계산 (현재가 기준)"""
+    if not prices or len(prices) < 30 or not current_price or current_price <= 0:
         return {'평균_예상수익률': 0, '최대_예상수익률': 0, '최소_예상수익률': 0, '평균_최고수익률': 0, '유사패턴_개수': 0, '평균_예상기간': 30}
 
     recent_highs = [p['종가'] for p in prices[-30:] if p.get('종가')]
@@ -278,11 +278,12 @@ def calculate_expected_returns(current_price, b_price, prices):
     avg_price = sum(recent_highs) / len(recent_highs)
     min_price = min(recent_highs)
 
+    # 현재가 기준으로 예상 수익률 계산 (과거 최고가 기준)
     return {
-        '평균_예상수익률': round((avg_price - b_price) / b_price * 100, 2),
-        '최대_예상수익률': round((max_price - b_price) / b_price * 100, 2),
-        '최소_예상수익률': round((min_price - b_price) / b_price * 100, 2),
-        '평균_최고수익률': round((max_price - b_price) / b_price * 100, 2),
+        '평균_예상수익률': round((avg_price - current_price) / current_price * 100, 2),
+        '최대_예상수익률': round((max_price - current_price) / current_price * 100, 2),
+        '최소_예상수익률': round((min_price - current_price) / current_price * 100, 2),
+        '평균_최고수익률': round((max_price - current_price) / current_price * 100, 2),
         '유사패턴_개수': len(recent_highs),
         '평균_예상기간': 30
     }

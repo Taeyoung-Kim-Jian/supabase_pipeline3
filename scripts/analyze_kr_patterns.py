@@ -34,20 +34,33 @@ print("Korean Stock Pattern Analysis")
 print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print("=" * 60)
 
-def classify_pattern(current_price, b_price):
-    """Pattern classification based on B-price"""
-    if not current_price or not b_price or b_price <= 0:
+def classify_pattern(current_price, b_prices_list):
+    """
+    Pattern classification based on ALL B-prices
+    - 최고, 두번째, 중간, 최저 B가격을 기준으로 패턴 분류
+    """
+    if not current_price or not b_prices_list or len(b_prices_list) == 0:
         return '기타'
 
-    if current_price > b_price * 1.05:
+    # B가격 정렬
+    sorted_b = sorted(b_prices_list)
+
+    max_b = sorted_b[-1]  # 최고 B가격
+    second_b = sorted_b[-2] if len(sorted_b) > 1 else sorted_b[0]  # 두번째 B가격
+    mid_b = sorted_b[len(sorted_b) // 2]  # 중간 B가격
+    min_b = sorted_b[0]  # 최저 B가격
+
+    # 패턴 분류
+    if current_price > max_b:
         return '돌파'
-    if b_price * 0.95 <= current_price <= b_price * 1.05:
+    elif current_price > second_b:
         return '돌파눌림'
-    if current_price < b_price * 0.90:
-        return '이탈'
-    if b_price * 0.90 <= current_price < b_price * 0.95:
+    elif current_price > mid_b:
         return '박스권'
-    return '기타'
+    elif current_price >= min_b:
+        return '이탈'
+    else:
+        return '붕괴'
 
 def get_current_price(stock_code):
     """Get latest price"""
@@ -59,15 +72,15 @@ def get_current_price(stock_code):
     except:
         return None
 
-def get_latest_bt_point(stock_code):
-    """Get latest B-price"""
+def get_all_bt_points(stock_code):
+    """Get ALL B-prices for pattern classification"""
     try:
-        response = supabase.table('bt_points').select('b가격').eq('종목코드', stock_code).order('순번', desc=True).limit(1).execute()
+        response = supabase.table('bt_points').select('b가격').eq('종목코드', stock_code).order('순번', desc=False).execute()
         if response.data and len(response.data) > 0:
-            return response.data[0]['b가격']
-        return None
+            return [point['b가격'] for point in response.data if point.get('b가격')]
+        return []
     except:
-        return None
+        return []
 
 def analyze_patterns():
     """Analyze all stocks and update patterns"""
@@ -81,7 +94,7 @@ def analyze_patterns():
         print(f"Analyzing {len(stocks)} stocks\n")
 
         updated_count = 0
-        pattern_stats = {"돌파": 0, "돌파눌림": 0, "박스권": 0, "이탈": 0, "기타": 0}
+        pattern_stats = {"돌파": 0, "돌파눌림": 0, "박스권": 0, "이탈": 0, "붕괴": 0, "기타": 0}
 
         for stock in stocks:
             stock_code = stock['종목코드']
@@ -91,11 +104,11 @@ def analyze_patterns():
             if not current_price:
                 continue
 
-            b_price = get_latest_bt_point(stock_code)
-            if not b_price:
+            b_prices_list = get_all_bt_points(stock_code)
+            if not b_prices_list or len(b_prices_list) == 0:
                 continue
 
-            pattern = classify_pattern(current_price, b_price)
+            pattern = classify_pattern(current_price, b_prices_list)
 
             try:
                 supabase.table('stocks').update({'pattern': pattern}).eq('종목코드', stock_code).execute()
