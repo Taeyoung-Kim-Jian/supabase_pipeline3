@@ -266,25 +266,33 @@ def calculate_buy_prices(b_price):
     }
 
 def calculate_expected_returns(current_price, b_price, prices):
-    """예상 수익률 계산 (현재가 기준)"""
-    if not prices or len(prices) < 30 or not current_price or current_price <= 0:
+    """예상 수익률 계산 (목표가 기준)"""
+    if not current_price or current_price <= 0 or not b_price or b_price <= 0:
         return {'평균_예상수익률': 0, '최대_예상수익률': 0, '최소_예상수익률': 0, '평균_최고수익률': 0, '유사패턴_개수': 0, '평균_예상기간': 30}
 
-    recent_highs = [p['종가'] for p in prices[-30:] if p.get('종가')]
-    if not recent_highs or not b_price or b_price <= 0:
-        return {'평균_예상수익률': 0, '최대_예상수익률': 0, '최소_예상수익률': 0, '평균_최고수익률': 0, '유사패턴_개수': 0, '평균_예상기간': 30}
+    # 목표가 기준 예상 수익률 (B가격 대비 +20%)
+    target_price = b_price * 1.20
+    expected_return = round((target_price - current_price) / current_price * 100, 2)
 
-    max_price = max(recent_highs)
-    avg_price = sum(recent_highs) / len(recent_highs)
-    min_price = min(recent_highs)
+    # 최소/최대 수익률 계산 (목표가 ±10%)
+    min_target = b_price * 1.10  # 최소 +10%
+    max_target = b_price * 1.30  # 최대 +30%
 
-    # 현재가 기준으로 예상 수익률 계산 (과거 최고가 기준)
+    min_return = round((min_target - current_price) / current_price * 100, 2)
+    max_return = round((max_target - current_price) / current_price * 100, 2)
+
+    # 과거 패턴 분석 (참고용)
+    pattern_count = 0
+    if prices and len(prices) >= 30:
+        recent_highs = [p['종가'] for p in prices[-30:] if p.get('종가')]
+        pattern_count = len(recent_highs)
+
     return {
-        '평균_예상수익률': round((avg_price - current_price) / current_price * 100, 2),
-        '최대_예상수익률': round((max_price - current_price) / current_price * 100, 2),
-        '최소_예상수익률': round((min_price - current_price) / current_price * 100, 2),
-        '평균_최고수익률': round((max_price - current_price) / current_price * 100, 2),
-        '유사패턴_개수': len(recent_highs),
+        '평균_예상수익률': expected_return,
+        '최대_예상수익률': max_return,
+        '최소_예상수익률': min_return,
+        '평균_최고수익률': max_return,
+        '유사패턴_개수': pattern_count,
         '평균_예상기간': 30
     }
 
