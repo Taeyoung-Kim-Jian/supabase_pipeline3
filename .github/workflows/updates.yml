@@ -44,7 +44,14 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         working-directory: ./
         run: node scripts/update-patterns.js
-      
+
+      - name: 📅 일일 패턴 업데이트 (prices.pattern)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/update_daily_pattern.py
+
       - name: 🇰🇷 한국 주식 패턴 분석 실행
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
