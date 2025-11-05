@@ -48,7 +48,7 @@ COMMENT ON COLUMN recommended_stocks."MA20근접도" IS '20일선 대비 현재�
 COMMENT ON COLUMN recommended_stocks."MA20기울기" IS '20일선 기울기 (5일 전 대비 %)';
 COMMENT ON COLUMN recommended_stocks.전고점거리 IS '전고점까지 상승 여력 (%)';
 
--- Row Level Security 설정 (선택사항)
+-- Row Level Security 설정
 ALTER TABLE recommended_stocks ENABLE ROW LEVEL SECURITY;
 
 -- 모든 사용자 읽기 허용
@@ -57,8 +57,18 @@ ON recommended_stocks
 FOR SELECT
 USING (true);
 
--- 서비스 롤만 쓰기 허용
-CREATE POLICY "Allow service role full access"
+-- 인증된 사용자 및 서비스 롤 쓰기 허용
+CREATE POLICY "Allow authenticated insert"
 ON recommended_stocks
-FOR ALL
-USING (auth.role() = 'service_role');
+FOR INSERT
+WITH CHECK (true);
+
+CREATE POLICY "Allow authenticated update"
+ON recommended_stocks
+FOR UPDATE
+USING (true);
+
+CREATE POLICY "Allow authenticated delete"
+ON recommended_stocks
+FOR DELETE
+USING (true);

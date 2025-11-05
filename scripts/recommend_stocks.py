@@ -325,22 +325,33 @@ def generate_recommendations():
 
     # 전체 종목 조회
     stocks = get_all_stocks()
-    print(f"총 {len(stocks)}개 종목 분석 시작...\n")
+    print(f"총 {len(stocks)}개 종목 분석 시작...")
 
-    # 디버그: kr_breakthrough_history 테이블 데이터 확인
+    # 🚀 최적화: 모든 breakthrough 데이터를 한 번에 조회
+    print("📊 신고가 돌파 데이터 로딩 중...")
+    breakthrough_cache = {}
     try:
-        bt_count = supabase.table('kr_breakthrough_history').select('*', count='exact').execute()
-        print(f"📊 kr_breakthrough_history 테이블: {bt_count.count}개 레코드")
-
-        # 샘플 데이터 확인
-        sample = supabase.table('kr_breakthrough_history').select('종목코드, 돌파일_1년, 돌파일_2년, 돌파일_3년').limit(3).execute()
-        if sample.data:
-            print("샘플 데이터:")
-            for row in sample.data:
-                print(f"  - {row}")
+        all_breakthroughs = supabase.table('kr_breakthrough_history').select('*').execute()
+        if all_breakthroughs.data:
+            for row in all_breakthroughs.data:
+                stock_code = row['종목코드']
+                breakthrough_cache[stock_code] = row
+            print(f"✓ {len(breakthrough_cache)}개 종목의 돌파 데이터 로드 완료")
     except Exception as e:
-        print(f"⚠️  kr_breakthrough_history 테이블 확인 실패: {e}")
-    print()
+        print(f"⚠️  돌파 데이터 로드 실패: {e}")
+
+    # 🚀 최적화: 모든 패턴 예측 데이터를 한 번에 조회
+    print("📊 패턴 예측 데이터 로딩 중...")
+    pattern_cache = {}
+    try:
+        all_patterns = supabase.table('pattern_predictions').select('종목코드, 메인패턴, 투자점수').execute()
+        if all_patterns.data:
+            for row in all_patterns.data:
+                stock_code = row['종목코드']
+                pattern_cache[stock_code] = row
+            print(f"✓ {len(pattern_cache)}개 종목의 패턴 데이터 로드 완료\n")
+    except Exception as e:
+        print(f"⚠️  패턴 데이터 로드 실패: {e}\n")
 
     candidates = []
     processed = 0
@@ -364,8 +375,37 @@ def generate_recommendations():
         stock_code = stock['종목코드']
         stock_name = stock['종목명']
 
-        # 1. 신고가 돌파 이력 확인
-        breakthrough = get_recent_breakthrough(stock_code)
+        # 1. 신고가 돌파 이력 확인 (캐시 사용)
+        if stock_code not in breakthrough_cache:
+            filter_stats['신고가 돌파 없음'] += 1
+            processed += 1
+            continue
+
+        # breakthrough 데이터 파싱
+        bt_row = breakthrough_cache[stock_code]
+        breakthroughs = []
+        for period in ['5년', '4년', '3년', '2년', '1년']:
+            col_name = f'돌파일_{period}'
+            if col_name in bt_row and bt_row[col_name]:
+                breakthrough_date = bt_row[col_name]
+                if isinstance(breakthrough_date, str):
+                    breakthrough_date = breakthrough_date.split('T')[0]
+                days_ago = (datetime.now() - datetime.strptime(breakthrough_date, '%Y-%m-%d')).days
+                if RECOMMENDATION_PARAMS['breakthrough_window'][0] <= days_ago <= RECOMMENDATION_PARAMS['breakthrough_window'][1]:
+                    breakthroughs.append({
+                        '돌파일': breakthrough_date,
+                        '기간': period,
+                        '강도': {'5년': 5, '4년': 4, '3년': 3, '2년': 2, '1년': 1}[period],
+                        '경과일수': days_ago
+                    })
+
+        if not breakthroughs:
+            filter_stats['신고가 돌파 없음'] += 1
+            processed += 1
+            continue
+
+        breakthrough = sorted(breakthroughs, key=lambda x: x['강도'], reverse=True)[0]
+
         if not breakthrough:
             filter_stats['신고가 돌파 없음'] += 1
             processed += 1
@@ -427,13 +467,13 @@ def generate_recommendations():
             processed += 1
             continue
 
-        # 6. 패턴 체크
-        pattern_data = get_current_pattern_and_score(stock_code)
-        if not pattern_data:
+        # 6. 패턴 체크 (캐시 사용)
+        if stock_code not in pattern_cache:
             filter_stats['패턴 부적합'] += 1
             processed += 1
             continue
 
+        pattern_data = pattern_cache[stock_code]
         current_pattern = pattern_data.get('메인패턴', '')
         investment_score = pattern_data.get('투자점수', 0)
 
