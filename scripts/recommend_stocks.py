@@ -40,11 +40,11 @@ print("=" * 80)
 # 추천 기준 파라미터 (백테스팅으로 검증된 최적값)
 RECOMMENDATION_PARAMS = {
     'breakthrough_window': (30, 180),  # 신고가 돌파 후 30~180일
-    'correction_range': (-25, -10),  # 고점 대비 -25% ~ -10% 조정
-    'ma20_proximity': (0, 5),  # 20일선 대비 0~5% 이내
-    'min_investment_score': 70,  # 최소 투자점수
-    'min_breakthrough_period': 2,  # 최소 돌파 기간 (1=1년, 2=2년, ...)
-    'preferred_patterns': ['박스권', '돌파눌림'],  # 선호 패턴
+    'correction_range': (-30, -5),  # 고점 대비 -30% ~ -5% 조정 (완화)
+    'ma20_proximity': (0, 10),  # 20일선 대비 0~10% 이내 (완화)
+    'min_investment_score': 60,  # 최소 투자점수 (완화)
+    'min_breakthrough_period': 1,  # 최소 돌파 기간 (1=1년, 2=2년, ...) (완화)
+    'preferred_patterns': ['박스권', '돌파눌림', '돌파'],  # 선호 패턴 (돌파 추가)
     'max_recommendations': 5,  # 최대 추천 개수
 }
 
@@ -149,16 +149,20 @@ def calculate_recent_volatility(prices_df, days=10):
 
     return daily_returns.std() * 100
 
-def check_recommendation_criteria(stock_code, stock_name):
+def check_recommendation_criteria(stock_code, stock_name, debug=False):
     """추천 조건 체크"""
 
     # 1. 신고가 돌파 이력 확인
     breakthrough = get_recent_breakthrough(stock_code)
     if not breakthrough:
+        if debug:
+            print(f"  ❌ {stock_name}: 신고가 돌파 없음")
         return None
 
     # 최소 돌파 기간 체크
     if breakthrough['강도'] < RECOMMENDATION_PARAMS['min_breakthrough_period']:
+        if debug:
+            print(f"  ❌ {stock_name}: 돌파 강도 부족 ({breakthrough['기간']})")
         return None
 
     # 2. 가격 데이터 조회
@@ -296,17 +300,127 @@ def generate_recommendations():
     candidates = []
     processed = 0
 
+    # 필터 통계
+    filter_stats = {
+        '신고가 돌파 없음': 0,
+        '돌파 강도 부족': 0,
+        '가격 데이터 부족': 0,
+        '고점 없음': 0,
+        '조정률 부적합': 0,
+        '20일선 아래': 0,
+        '20일선 거리 부적합': 0,
+        '20일선 하락': 0,
+        '패턴 부적합': 0,
+        '투자점수 부족': 0,
+        '통과': 0
+    }
+
     for stock in stocks:
         stock_code = stock['종목코드']
         stock_name = stock['종목명']
 
-        result = check_recommendation_criteria(stock_code, stock_name)
+        # 1. 신고가 돌파 이력 확인
+        breakthrough = get_recent_breakthrough(stock_code)
+        if not breakthrough:
+            filter_stats['신고가 돌파 없음'] += 1
+            processed += 1
+            continue
+
+        # 최소 돌파 기간 체크
+        if breakthrough['강도'] < RECOMMENDATION_PARAMS['min_breakthrough_period']:
+            filter_stats['돌파 강도 부족'] += 1
+            processed += 1
+            continue
+
+        # 2. 가격 데이터 조회
+        prices = get_recent_prices(stock_code, 60)
+        if len(prices) < 30:
+            filter_stats['가격 데이터 부족'] += 1
+            processed += 1
+            continue
+
+        prices_df = pd.DataFrame(prices)
+        current_price = prices_df.iloc[-1]['종가']
+
+        # 3. 돌파 후 고점 계산
+        peak_price = get_peak_after_breakthrough(prices_df, breakthrough['돌파일'])
+        if not peak_price:
+            filter_stats['고점 없음'] += 1
+            processed += 1
+            continue
+
+        # 4. 고점 대비 조정률 체크
+        correction_pct = (current_price - peak_price) / peak_price * 100
+        if correction_pct < RECOMMENDATION_PARAMS['correction_range'][0] or correction_pct > RECOMMENDATION_PARAMS['correction_range'][1]:
+            filter_stats['조정률 부적합'] += 1
+            processed += 1
+            continue
+
+        # 5. 20일 이동평균선 체크
+        ma20, ma20_slope = calculate_ma20(prices_df)
+        if not ma20:
+            filter_stats['가격 데이터 부족'] += 1
+            processed += 1
+            continue
+
+        # 20일선 위에 있는지
+        if current_price < ma20:
+            filter_stats['20일선 아래'] += 1
+            processed += 1
+            continue
+
+        # 20일선 근접도
+        ma20_proximity = (current_price - ma20) / ma20 * 100
+        if ma20_proximity < RECOMMENDATION_PARAMS['ma20_proximity'][0] or ma20_proximity > RECOMMENDATION_PARAMS['ma20_proximity'][1]:
+            filter_stats['20일선 거리 부적합'] += 1
+            processed += 1
+            continue
+
+        # 20일선 상승 중인지 (약한 하락도 허용: -2% 이상)
+        if not ma20_slope or ma20_slope < -2:
+            filter_stats['20일선 하락'] += 1
+            processed += 1
+            continue
+
+        # 6. 패턴 체크
+        pattern_data = get_current_pattern_and_score(stock_code)
+        if not pattern_data:
+            filter_stats['패턴 부적합'] += 1
+            processed += 1
+            continue
+
+        current_pattern = pattern_data.get('메인패턴', '')
+        investment_score = pattern_data.get('투자점수', 0)
+
+        if current_pattern not in RECOMMENDATION_PARAMS['preferred_patterns']:
+            filter_stats['패턴 부적합'] += 1
+            processed += 1
+            continue
+
+        # 7. 투자점수 체크
+        if investment_score < RECOMMENDATION_PARAMS['min_investment_score']:
+            filter_stats['투자점수 부족'] += 1
+            processed += 1
+            continue
+
+        # 모든 조건 통과 - 상세 계산
+        filter_stats['통과'] += 1
+        result = check_recommendation_criteria(stock_code, stock_name, debug=False)
         if result:
             candidates.append(result)
+            print(f"  ✅ {stock_name} ({stock_code}): 종합점수 {result['종합점수']}")
 
         processed += 1
         if processed % 100 == 0:
             print(f"진행: {processed}/{len(stocks)} 종목 완료")
+
+    print(f"\n{'='*60}")
+    print(f"필터링 통계")
+    print(f"{'='*60}")
+    for key, count in filter_stats.items():
+        pct = count / len(stocks) * 100 if len(stocks) > 0 else 0
+        print(f"{key}: {count}개 ({pct:.1f}%)")
+    print(f"{'='*60}")
 
     print(f"\n후보 종목: {len(candidates)}개 발견\n")
 
