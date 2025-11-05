@@ -13,21 +13,51 @@ from supabase import create_client, Client
 import pandas as pd
 import numpy as np
 
+# Windows 콘솔 UTF-8 인코딩 설정
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        pass
+
 # .env 파일 로드
 try:
     from dotenv import load_dotenv
-    env_path = Path(__file__).parent / '.env'
-    if env_path.exists():
-        load_dotenv(env_path)
-except:
-    pass
+
+    # 여러 경로에서 .env 찾기
+    possible_paths = [
+        Path(__file__).parent / '.env',  # scripts/.env
+        Path(__file__).parent.parent / '.env',  # supabase_pipeline3/.env
+        Path(__file__).parent.parent / 'scripts' / '.env',  # supabase_pipeline3/scripts/.env
+    ]
+
+    env_loaded = False
+    for env_path in possible_paths:
+        if env_path.exists():
+            load_dotenv(env_path)
+            print(f"✓ .env 파일 로드: {env_path}")
+            env_loaded = True
+            break
+
+    if not env_loaded:
+        print("⚠️  .env 파일을 찾을 수 없습니다. 환경변수를 직접 설정하세요.")
+except ImportError:
+    print("⚠️  python-dotenv가 설치되지 않았습니다. pip install python-dotenv")
 
 # Supabase 클라이언트 초기화
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("ERROR: Environment variables not set")
+    print("\nERROR: Environment variables not set")
+    print("\n필요한 환경변수:")
+    print("  - SUPABASE_URL")
+    print("  - SUPABASE_SERVICE_ROLE_KEY 또는 SUPABASE_ANON_KEY")
+    print("\n해결 방법:")
+    print("  1. scripts/.env 파일 생성")
+    print("  2. vercel_project/scripts/.env 파일을 복사")
+    print("  3. 또는 환경변수 직접 설정")
     sys.exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -57,10 +87,10 @@ def get_all_stocks():
         return []
 
 def get_breakthrough_history(stock_code, start_date):
-    """신고가 돌파 이력 조회 (breakthrough 테이블)"""
+    """신고가 돌파 이력 조회 (kr_breakthrough_history 테이블)"""
     try:
-        # breakthrough 테이블에서 데이터 조회
-        response = supabase.table('breakthrough').select('*').eq('종목코드', stock_code).execute()
+        # kr_breakthrough_history 테이블에서 데이터 조회
+        response = supabase.table('kr_breakthrough_history').select('*').eq('종목코드', stock_code).execute()
 
         if not response.data or len(response.data) == 0:
             return []
