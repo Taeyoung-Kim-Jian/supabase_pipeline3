@@ -159,6 +159,15 @@ async function updateBreakthroughDaily() {
       console.log(`새로운 거래일 ${newDates.length}개 발견: ${toKstDateString(newDates[0])} ~ ${toKstDateString(newDates[newDates.length - 1])}\n`);
     }
 
+    // 2-1. kr_breakthrough_history에 기록이 하나도 없는 종목(=신규 백필 종목) 파악.
+    // 이 종목들은 과거 시세가 lastDate보다 훨씬 이전 날짜라 newDateStrings에 안 걸려서
+    // 위 "새로운 거래일" 로직으로는 영원히 돌파 계산이 안 된다 - 전체 이력을 스캔해야 함
+    // (2026-08-17, 싸이맥스 등 키움 조건검색 신규종목이 신고가 목록에 안 뜨는 문제로 발견).
+    const existingCodesResult = await pool.query(`
+      SELECT DISTINCT "종목코드" FROM kr_breakthrough_history
+    `);
+    const existingCodes = new Set(existingCodesResult.rows.map(r => r.종목코드));
+
     // 3. 모든 종목 조회
     const stocks = await pool.query(`
       SELECT DISTINCT 종목코드
@@ -207,14 +216,21 @@ async function updateBreakthroughDaily() {
       // 가장 최근 종가 (현재가)
       const 최근가격 = priceData[priceData.length - 1]?.종가 || 0;
 
-      // 새로운 거래일이 있을 때만 신규 레코드 생성
-      if (newDateStrings.size > 0) {
+      // kr_breakthrough_history에 이 종목 기록이 하나도 없으면(신규 백필 종목) 전체
+      // 이력을 스캔하고, 이미 있는 종목이면 기존처럼 새로운 거래일만 스캔한다.
+      const isBrandNewStock = !existingCodes.has(stock.종목코드);
+      if (isBrandNewStock) {
+        console.log(`  [신규종목 전체스캔] ${종목명}(${stock.종목코드}) - ${priceData.length}일 이력 분석`);
+      }
+
+      // 새로운 거래일이 있거나(기존 종목) 신규 종목(전체 스캔)일 때만 레코드 생성
+      if (newDateStrings.size > 0 || isBrandNewStock) {
         for (let i = 0; i < priceData.length; i++) {
           const today = priceData[i];
           const 날짜 = today.rawDate;
 
-          // 새로운 거래일에 해당하지 않으면 스킵
-          const isNewDate = newDateStrings.has(today.dateStr);
+          // 신규 종목은 전체 이력을, 기존 종목은 새로운 거래일만 스캔
+          const isNewDate = isBrandNewStock || newDateStrings.has(today.dateStr);
           if (!isNewDate) continue;
 
           const breakthroughData = {
