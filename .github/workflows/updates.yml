@@ -45,6 +45,18 @@ jobs:
         working-directory: ./
         run: node scripts/update-patterns.js
 
+      - name: 🚀 신고가 돌파 이력 업데이트 (kr_breakthrough_history)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        working-directory: ./
+        run: node scripts/update_kr_breakthrough_daily.js
+
+      - name: 🔍 스윙 패턴 분석 (kr_pattern_analysis)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        working-directory: ./
+        run: node scripts/update_pattern_analysis_daily.js
+
       - name: 📅 일일 패턴 업데이트 (prices.pattern)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
