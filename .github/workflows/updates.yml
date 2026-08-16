@@ -31,7 +31,7 @@ jobs:
       - name: 🟢 Node.js 설치
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       
       # ✅ 수정된 부분: package.json에 명시된 모든 의존성을 설치합니다.
       - name: 📦 Node.js 의존성 설치
