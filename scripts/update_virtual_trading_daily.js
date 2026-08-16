@@ -1,6 +1,6 @@
 // 가상매매(페이퍼 트레이딩) 일일 업데이트
 // 전략: 3년+ 신고가 돌파 + 돌파전 필터(60일 상승폭<80%, 돌파일 거래량스파이크<6배) + day10 양전 확인
-//       -> day10 종가에 종목당 1000만원 매수 -> day20에 모멘텀 강도 판정
+//       -> day10 종가로 조건만 판정, 실제 매수는 day11(다음 거래일) 시가에 체결 -> day20에 모멘텀 강도 판정
 //       -> 강한모멘텀(day20 수익률>=15%): -30%손절 + 사다리(+50/80/150/300%) + 300%이후 고점대비-25%추적손절, 시간제한 없음
 //       -> 약한모멘텀: -30%손절 + 사다리(+80%->+40%락) + 120거래일 캡
 const { Pool } = require('pg');
@@ -29,12 +29,12 @@ const priceCache = new Map();
 async function getPriceSeries(code) {
   if (priceCache.has(code)) return priceCache.get(code);
   const r = await pool.query(`
-    SELECT 날짜 AS date, 종가::float AS close, 고가::float AS high, 저가::float AS low, 거래량::float AS volume
+    SELECT 날짜 AS date, 종가::float AS close, 시가::float AS open, 고가::float AS high, 저가::float AS low, 거래량::float AS volume
     FROM prices WHERE 종목코드 = $1 ORDER BY 날짜 ASC
   `, [code]);
   const rows = r.rows.map(row => ({
     date: row.date.toISOString().slice(0, 10),
-    close: row.close, high: row.high, low: row.low, volume: row.volume || 0
+    close: row.close, open: row.open, high: row.high, low: row.low, volume: row.volume || 0
   }));
   priceCache.set(code, rows);
   return rows;
@@ -84,11 +84,12 @@ async function scanNewEntries() {
 
     const i0 = findIndexByDate(series, breakoutDate);
     if (i0 < 60) continue;
-    const entryIdx = i0 + 10;
-    if (entryIdx >= series.length) continue; // 아직 day10 도달 전
+    const day10Idx = i0 + 10;
+    const buyIdx = i0 + 11; // 매수는 day10 확인 다음 거래일(day11) 시가에 체결
+    if (buyIdx >= series.length) continue; // 아직 매수시점 도달 전
 
-    const entryRow = series[entryIdx];
-    const ret10 = entryRow.close / breakoutPrice - 1;
+    const day10Row = series[day10Idx];
+    const ret10 = day10Row.close / breakoutPrice - 1;
     if (ret10 <= 0) continue; // day10 확인 실패
 
     // 이미 매수한 적 있는지(종목코드+돌파일 유니크) 확인
@@ -97,9 +98,10 @@ async function scanNewEntries() {
     );
     if (exists.rows.length > 0) continue;
 
-    // day10 신호가 "오늘" 발생한 것인지 확인 (과거 신호를 소급 매수하지 않음)
+    // 매수시점(day11)이 "오늘" 발생한 것인지 확인 (과거 신호를 소급 매수하지 않음)
+    const buyRow = series[buyIdx];
     const latestDate = series[series.length - 1].date;
-    if (entryRow.date !== latestDate) continue;
+    if (buyRow.date !== latestDate) continue;
 
     // 돌파전 필터 계산
     const pre60 = series.slice(i0 - 60, i0);
@@ -114,7 +116,7 @@ async function scanNewEntries() {
       continue;
     }
 
-    const buyPrice = entryRow.close;
+    const buyPrice = buyRow.open;
     const quantity = Math.floor(INVEST_PER_STOCK / buyPrice);
     if (quantity <= 0) continue;
     const invested = quantity * buyPrice;
@@ -126,10 +128,10 @@ async function scanNewEntries() {
          passed_pre_filter, pre60_trend, breakout_vol_spike,
          status, day20_checked, peak_price, stop_price, current_price, current_date_checked, updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open',false,$7,$13,$7,$6, now())
-    `, [code, name, breakoutDate, breakoutPrice, years, entryRow.date, buyPrice, quantity, invested,
+    `, [code, name, breakoutDate, breakoutPrice, years, buyRow.date, buyPrice, quantity, invested,
         passesFilter, pre60Trend, volSpike, stopPrice]);
 
-    console.log(`  [신규매수] ${name}(${code}) ${entryRow.date} 매수가=${buyPrice} 수량=${quantity} 투자금=${invested}`);
+    console.log(`  [신규매수] ${name}(${code}) ${buyRow.date} 시가매수가=${buyPrice} 수량=${quantity} 투자금=${invested}`);
     inserted++;
   }
   console.log(`진입 스캔 완료: ${inserted}건 신규매수`);
