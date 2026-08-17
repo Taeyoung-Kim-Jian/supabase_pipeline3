@@ -3,6 +3,8 @@
 //       -> day10 종가로 조건만 판정, 실제 매수는 day11(다음 거래일) 시가에 체결 -> day20에 모멘텀 강도 판정
 //       -> 강한모멘텀(day20 수익률>=15%): -30%손절 + 사다리(+50/80/150/300%) + 300%이후 고점대비-25%추적손절, 시간제한 없음
 //       -> 약한모멘텀: -30%손절 + 사다리(+80%->+40%락) + 120거래일 캡
+//       -> [워치리스트] -30%손절된 종목은 250거래일간 관찰, 그 사이 20일 신고가를 다시 찍으면
+//          다음거래일 시가에 재진입(entry_type='reclaim') -> 약한모멘텀과 동일한 방식으로 관리
 const { Pool } = require('pg');
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
@@ -23,6 +25,8 @@ const STRONG_LADDER = [[0.5, 0.2], [0.8, 0.4], [1.5, 1.0], [3.0, 2.0]];
 const WEAK_LADDER = [[0.8, 0.4]];
 const TRAIL_AFTER = 3.0;
 const TRAIL_PCT = 0.25;
+const RECLAIM_WATCH_WINDOW = 250; // 손절 이후 재진입 트리거를 지켜보는 최대 거래일수
+const RECLAIM_LOOKBACK = 20;      // N일 신고가 재돌파 기준
 
 const priceCache = new Map();
 
@@ -258,11 +262,75 @@ async function manageOpenPositions() {
   console.log(`포지션 관리 완료: ${updatedCount}건 갱신, ${closedCount}건 청산`);
 }
 
+// ── 4) 워치리스트 재진입 스캔: -30%손절된 종목이 이후 20일 신고가를 다시 찍으면 재매수 ──
+async function scanWatchlistReentries() {
+  console.log('\n=== 4) 워치리스트 재진입 스캔 ===');
+  const stoppedPositions = await pool.query(`
+    SELECT * FROM virtual_trades
+    WHERE status='closed' AND sell_reason='stoploss_-30%' AND entry_type='breakout'
+  `);
+  let inserted = 0;
+
+  for (const pos of stoppedPositions.rows) {
+    // 이미 이 손절건에 대해 재진입한 적 있으면 건너뜀(손절당 재진입은 1회만)
+    const already = await pool.query(
+      `SELECT 1 FROM virtual_trades WHERE source_stop_id=$1`, [pos.id]
+    );
+    if (already.rows.length > 0) continue;
+
+    // 같은 종목을 이미 보유중이면(돌파신호든 재진입이든) 건너뜀
+    const holding = await pool.query(
+      `SELECT 1 FROM virtual_trades WHERE 종목코드=$1 AND status='open'`, [pos.종목코드]
+    );
+    if (holding.rows.length > 0) continue;
+
+    const series = await getPriceSeries(pos.종목코드);
+    const stopDate = pos.sell_date.toISOString().slice(0, 10);
+    const stopIdx = findIndexByDate(series, stopDate);
+    if (stopIdx < 0) continue;
+
+    const watchEndIdx = Math.min(series.length - 1, stopIdx + RECLAIM_WATCH_WINDOW);
+    let triggerIdx = null;
+    for (let i = Math.max(stopIdx + 1, RECLAIM_LOOKBACK); i <= watchEndIdx; i++) {
+      const past = series.slice(i - RECLAIM_LOOKBACK, i);
+      const pastHigh = Math.max(...past.map(r => r.high));
+      if (series[i].high > pastHigh) { triggerIdx = i; break; }
+    }
+    if (triggerIdx === null) continue; // 아직 트리거 없음(워치 계속) 또는 관찰기간 만료
+
+    const buyIdx = triggerIdx + 1;
+    if (buyIdx >= series.length) continue; // 트리거는 났지만 아직 다음날 데이터 없음
+    const buyRow = series[buyIdx];
+    const latestDate = series[series.length - 1].date;
+    if (buyRow.date !== latestDate) continue; // 매수시점이 "오늘"이 아니면 소급매수 안함
+
+    const buyPrice = buyRow.open;
+    const quantity = Math.floor(INVEST_PER_STOCK / buyPrice);
+    if (quantity <= 0) continue;
+    const invested = quantity * buyPrice;
+    const stopPrice = buyPrice * (1 + BASE_STOP);
+
+    await pool.query(`
+      INSERT INTO virtual_trades
+        (종목코드, 종목명, breakout_date, years, buy_date, buy_price, quantity, invested_amount,
+         status, day20_checked, is_strong_momentum, peak_price, stop_price, current_price,
+         current_date_checked, entry_type, source_stop_id, updated_at)
+      VALUES ($1,$2,$3,NULL,$4,$5,$6,$7,'open',true,false,$5,$8,$5,$4,'reclaim',$9, now())
+    `, [pos.종목코드, pos.종목명, buyRow.date, buyRow.date, buyPrice, quantity, invested, stopPrice, pos.id]);
+
+    console.log(`  [워치리스트 재진입] ${pos.종목명}(${pos.종목코드}) ${buyRow.date} 시가매수가=${buyPrice} ` +
+      `(손절일 ${stopDate} -> ${RECLAIM_LOOKBACK}일 신고가 재돌파)`);
+    inserted++;
+  }
+  console.log(`워치리스트 재진입 스캔 완료: ${inserted}건 신규매수`);
+}
+
 async function main() {
   try {
     await scanNewEntries();
     await classifyDay20();
     await manageOpenPositions();
+    await scanWatchlistReentries();
     console.log('\n=== 가상매매 일일 업데이트 완료 ===');
   } catch (err) {
     console.error('Error:', err.message);
